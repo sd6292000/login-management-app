@@ -108,6 +108,20 @@
 <!--        <groupId>io.micrometer</groupId>-->
 <!--        <artifactId>micrometer-registry-influxdb</artifactId>-->
 <!--    </dependency>-->
+
+    <!-- Hazelcast -->
+    <dependency>
+        <groupId>com.hazelcast</groupId>
+        <artifactId>hazelcast</artifactId>
+        <version>5.3.6</version>
+    </dependency>
+
+    <!-- Hazelcast Spring Boot Starter -->
+    <dependency>
+        <groupId>com.hazelcast</groupId>
+        <artifactId>hazelcast-spring-boot-starter</artifactId>
+        <version>5.3.6</version>
+    </dependency>
     </dependencies>
 
     <build>

@@ -43,6 +43,19 @@ app:
         deduplicationKeyStrategy: "DEFAULT"
         maxQueueSize: 10000
         enableMetrics: true
+    
+    # 分布式队列配置
+    distributed:
+      enabled: true
+      max-size: 10000
+      deduplication:
+        enabled: true
+        ttl-seconds: 3600
+        max-idle-seconds: 1800
+      processor:
+        enabled: true
+        threads: 2
+        poll-timeout: 5
 
 # 监控配置
 management:

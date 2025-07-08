@@ -1,9 +1,14 @@
 package com.wilsonkeh.loginmanagement.queue;
 
+import com.hazelcast.nio.ObjectDataInput;
+import com.hazelcast.nio.ObjectDataOutput;
+import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
 import com.wilsonkeh.loginmanagement.dto.LoginRecordRequest;
+import com.wilsonkeh.loginmanagement.queue.serialization.LoginRecordDataSerializableFactory;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 
 /**
@@ -11,15 +16,19 @@ import java.time.LocalDateTime;
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
-public class LoginRecordTask implements Task<LoginRecordRequest> {
+public class LoginRecordTask implements Task<LoginRecordRequest>, IdentifiedDataSerializable {
     
-    private final String taskId;
-    private final LoginRecordRequest data;
-    private final String taskType;
-    private final String deduplicationKey;
-    private final int priority;
-    private final long createdTime;
-    private final boolean discardable;
+    private String taskId;
+    private LoginRecordRequest data;
+    private String taskType;
+    private String deduplicationKey;
+    private int priority;
+    private long createdTime;
+    private boolean discardable;
+
+    // 默认构造函数，用于Hazelcast序列化
+    public LoginRecordTask() {
+    }
 
     public LoginRecordTask(LoginRecordRequest data) {
         this.taskId = generateTaskId(data);
@@ -78,5 +87,38 @@ public class LoginRecordTask implements Task<LoginRecordRequest> {
     @Override
     public boolean isDiscardable() {
         return discardable;
+    }
+
+    // Hazelcast序列化方法
+    @Override
+    public int getFactoryId() {
+        return LoginRecordDataSerializableFactory.FACTORY_ID;
+    }
+
+    @Override
+    public int getClassId() {
+        return LoginRecordDataSerializableFactory.LOGIN_RECORD_TASK_TYPE;
+    }
+
+    @Override
+    public void writeData(ObjectDataOutput out) throws IOException {
+        out.writeString(taskId);
+        out.writeObject(data);
+        out.writeString(taskType);
+        out.writeString(deduplicationKey);
+        out.writeInt(priority);
+        out.writeLong(createdTime);
+        out.writeBoolean(discardable);
+    }
+
+    @Override
+    public void readData(ObjectDataInput in) throws IOException {
+        taskId = in.readString();
+        data = in.readObject();
+        taskType = in.readString();
+        deduplicationKey = in.readString();
+        priority = in.readInt();
+        createdTime = in.readLong();
+        discardable = in.readBoolean();
     }
 } 
