@@ -78,6 +78,18 @@
         <artifactId>spring-security-test</artifactId>
         <scope>test</scope>
     </dependency>
+
+    <!-- Spring Retry -->
+    <dependency>
+        <groupId>org.springframework.retry</groupId>
+        <artifactId>spring-retry</artifactId>
+    </dependency>
+
+    <!-- Spring AOP (required for Spring Retry) -->
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-aspects</artifactId>
+    </dependency>
     </dependencies>
 
     <build>

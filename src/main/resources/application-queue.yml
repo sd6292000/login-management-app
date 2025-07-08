@@ -1,0 +1,75 @@
+# 队列配置示例
+app:
+  queue:
+    queues:
+      # 登录记录队列配置
+      login-record-queue:
+        name: "login-record-queue"
+        corePoolSize: 5
+        maxPoolSize: 20
+        queueCapacity: 1000
+        threadNamePrefix: "LoginRecord-"
+        batchSize: 20
+        maxBatchSize: 50
+        processIntervalMs: 5000
+        maxRetryAttempts: 3
+        retryDelayMs: 1000
+        retryMultiplier: 2.0
+        enableDeduplication: true
+        deduplicationKeyStrategy: "DEFAULT"
+        maxQueueSize: 10000
+        enableMetrics: true
+      
+      # 邮件发送队列配置
+      email-queue:
+        name: "email-queue"
+        corePoolSize: 3
+        maxPoolSize: 10
+        queueCapacity: 500
+        threadNamePrefix: "Email-"
+        batchSize: 10
+        maxBatchSize: 30
+        processIntervalMs: 3000
+        maxRetryAttempts: 5
+        retryDelayMs: 2000
+        retryMultiplier: 1.5
+        enableDeduplication: true
+        deduplicationKeyStrategy: "CUSTOM"
+        maxQueueSize: 5000
+        enableMetrics: true
+      
+      # 日志处理队列配置
+      log-queue:
+        name: "log-queue"
+        corePoolSize: 2
+        maxPoolSize: 8
+        queueCapacity: 2000
+        threadNamePrefix: "Log-"
+        batchSize: 50
+        maxBatchSize: 100
+        processIntervalMs: 10000
+        maxRetryAttempts: 2
+        retryDelayMs: 500
+        retryMultiplier: 1.0
+        enableDeduplication: false
+        deduplicationKeyStrategy: "NONE"
+        maxQueueSize: 20000
+        enableMetrics: true
+      
+      # 高优先级队列配置
+      high-priority-queue:
+        name: "high-priority-queue"
+        corePoolSize: 8
+        maxPoolSize: 30
+        queueCapacity: 200
+        threadNamePrefix: "HighPriority-"
+        batchSize: 5
+        maxBatchSize: 15
+        processIntervalMs: 1000
+        maxRetryAttempts: 3
+        retryDelayMs: 500
+        retryMultiplier: 2.0
+        enableDeduplication: true
+        deduplicationKeyStrategy: "DEFAULT"
+        maxQueueSize: 1000
+        enableMetrics: true 
