@@ -57,6 +57,63 @@ app:
         threads: 2
         poll-timeout: 5
 
+  # Hazelcast配置
+  hazelcast:
+    cluster:
+      name: login-management-cluster
+      zone: default
+      backup-count: 1
+      async-backup-count: 1
+      max-join-seconds: 300
+      auto-rejoin:
+        enabled: true
+        max-attempts: 5
+        initial-backoff-seconds: 1
+        max-backoff-seconds: 60
+        backoff-multiplier: 2.0
+    
+    network:
+      port: 5701
+      port-auto-increment: true
+      heartbeat:
+        interval-seconds: 5
+        timeout-seconds: 60
+        max-no-heartbeat-seconds: 300
+      icmp:
+        enabled: true
+        timeout-seconds: 10
+        ttl: 255
+        parallel-mode: true
+      fault-tolerance:
+        enabled: true
+        heartbeat-check-interval-seconds: 30
+        max-consecutive-failures: 3
+        recovery-window-seconds: 300
+        auto-reconnect:
+          enabled: true
+          max-attempts: 10
+          backoff-seconds: 5
+    
+    consul:
+      enabled: true
+      refresh-interval-seconds: 30
+      service-tag: hazelcast
+
+# Spring Cloud Consul配置
+spring:
+  cloud:
+    consul:
+      host: localhost
+      port: 8500
+      discovery:
+        enabled: true
+        service-name: ${spring.application.name}
+        tags:
+          - hazelcast
+        health-check-path: /actuator/health
+        health-check-interval: 30s
+        deregister: true
+
 # 监控配置
 management:
   endpoints:

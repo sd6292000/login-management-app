@@ -4,6 +4,7 @@ import com.wilsonkeh.loginmanagement.dto.ApiResponse;
 import com.wilsonkeh.loginmanagement.queue.DistributedLoginRecordTaskProcessor;
 import com.wilsonkeh.loginmanagement.queue.DistributedTaskQueueManager;
 import com.wilsonkeh.loginmanagement.dto.LoginRecordRequest;
+import com.wilsonkeh.loginmanagement.config.NetworkFaultToleranceManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,9 @@ public class DistributedQueueMonitorController {
 
     @Autowired
     private DistributedLoginRecordTaskProcessor distributedLoginRecordTaskProcessor;
+
+    @Autowired
+    private NetworkFaultToleranceManager networkFaultToleranceManager;
 
     /**
      * 获取分布式队列状态
@@ -146,6 +150,51 @@ public class DistributedQueueMonitorController {
             log.error("清空分布式队列失败: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResponse<>("ERROR", "清空分布式队列失败: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * 获取网络容错健康报告
+     */
+    @GetMapping("/network/health")
+    public ResponseEntity<ApiResponse<String>> getNetworkHealth() {
+        try {
+            String healthReport = networkFaultToleranceManager.getClusterHealthReport();
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "获取网络健康报告成功", healthReport));
+        } catch (Exception e) {
+            log.error("获取网络健康报告失败: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("ERROR", "获取网络健康报告失败: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * 手动触发重连
+     */
+    @PostMapping("/network/reconnect")
+    public ResponseEntity<ApiResponse<String>> triggerReconnection() {
+        try {
+            networkFaultToleranceManager.triggerReconnection();
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "触发重连成功", "重连操作已启动"));
+        } catch (Exception e) {
+            log.error("触发重连失败: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("ERROR", "触发重连失败: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * 重置网络健康状态
+     */
+    @PostMapping("/network/reset")
+    public ResponseEntity<ApiResponse<String>> resetNetworkHealth() {
+        try {
+            networkFaultToleranceManager.resetHealthStatus();
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "重置网络健康状态成功", "健康状态已重置"));
+        } catch (Exception e) {
+            log.error("重置网络健康状态失败: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("ERROR", "重置网络健康状态失败: " + e.getMessage(), null));
         }
     }
 } 
