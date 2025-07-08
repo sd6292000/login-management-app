@@ -2,6 +2,7 @@ package com.wilsonkeh.loginmanagement.controller;
 
 import com.wilsonkeh.loginmanagement.dto.ApiResponse;
 import com.wilsonkeh.loginmanagement.queue.TaskQueueManager;
+import com.wilsonkeh.loginmanagement.queue.GenericTaskQueue;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,9 +24,9 @@ public class QueueMonitorController {
      * 获取所有队列的统计信息
      */
     @GetMapping("/statistics")
-    public ResponseEntity<ApiResponse<Map<String, TaskQueueManager.QueueStatistics>>> getAllQueueStatistics() {
+    public ResponseEntity<ApiResponse<Map<String, GenericTaskQueue.QueueStatistics>>> getAllQueueStatistics() {
         try {
-            Map<String, TaskQueueManager.QueueStatistics> statistics = taskQueueManager.getAllQueueStatistics();
+            Map<String, GenericTaskQueue.QueueStatistics> statistics = taskQueueManager.getAllQueueStatistics();
             return ResponseEntity.ok(ApiResponse.success("获取所有队列统计成功", statistics));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
@@ -37,9 +38,9 @@ public class QueueMonitorController {
      * 获取指定队列的统计信息
      */
     @GetMapping("/statistics/{queueName}")
-    public ResponseEntity<ApiResponse<TaskQueueManager.QueueStatistics>> getQueueStatistics(@PathVariable String queueName) {
+    public ResponseEntity<ApiResponse<GenericTaskQueue.QueueStatistics>> getQueueStatistics(@PathVariable String queueName) {
         try {
-            TaskQueueManager.QueueStatistics statistics = taskQueueManager.getQueueStatistics(queueName);
+            GenericTaskQueue.QueueStatistics statistics = taskQueueManager.getQueueStatistics(queueName);
             if (statistics != null) {
                 return ResponseEntity.ok(ApiResponse.success("获取队列统计成功", statistics));
             } else {
@@ -121,7 +122,7 @@ public class QueueMonitorController {
             // 检查每个队列的状态
             Map<String, Object> queueHealth = new java.util.HashMap<>();
             taskQueueManager.getQueueNames().forEach(queueName -> {
-                TaskQueueManager.QueueStatistics stats = taskQueueManager.getQueueStatistics(queueName);
+                GenericTaskQueue.QueueStatistics stats = taskQueueManager.getQueueStatistics(queueName);
                 if (stats != null) {
                     Map<String, Object> queueStatus = new java.util.HashMap<>();
                     queueStatus.put("queueSize", stats.getQueueSize());

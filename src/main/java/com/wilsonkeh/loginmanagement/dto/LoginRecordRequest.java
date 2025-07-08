@@ -1,6 +1,5 @@
 package com.wilsonkeh.loginmanagement.dto;
 
-import com.wilsonkeh.loginmanagement.entity.UserLoginRecord;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 

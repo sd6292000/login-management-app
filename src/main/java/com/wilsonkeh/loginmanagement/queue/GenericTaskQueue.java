@@ -1,6 +1,7 @@
 package com.wilsonkeh.loginmanagement.queue;
 
 import com.wilsonkeh.loginmanagement.config.QueueConfig;
+import com.wilsonkeh.loginmanagement.monitoring.QueueMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
@@ -9,9 +10,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -29,28 +27,35 @@ public class GenericTaskQueue<T> {
     @Autowired
     private List<TaskProcessor<T>> taskProcessors;
 
+    @Autowired
+    private QueueMetrics queueMetrics;
+
     private final String queueName;
     private final QueueConfig.QueueProperties properties;
     
-    // 优先级队列，用于存储待处理的任务
-    private final PriorityBlockingQueue<Task<T>> taskQueue;
-    
-    // 去重映射表
-    private final ConcurrentHashMap<String, Task<T>> deduplicationMap;
+    // 支持去重的优先级队列
+    private final DeduplicatingPriorityBlockingQueue<T> taskQueue;
     
     // 统计计数器
-    private final AtomicInteger totalEnqueued = new AtomicInteger(0);
-    private final AtomicInteger totalDeduplicated = new AtomicInteger(0);
     private final AtomicInteger totalProcessed = new AtomicInteger(0);
     private final AtomicInteger totalFailed = new AtomicInteger(0);
     private final AtomicLong lastProcessTime = new AtomicLong(0);
+    
+    // 监控指标
+    private final QueueMetrics.QueueMetricSet metrics;
 
     public GenericTaskQueue(String queueName) {
         this.queueName = queueName;
         this.properties = queueConfig.getQueueProperties(queueName);
-        this.taskQueue = new PriorityBlockingQueue<>(properties.getMaxQueueSize(), 
-            (t1, t2) -> Integer.compare(t1.getPriority(), t2.getPriority()));
-        this.deduplicationMap = new ConcurrentHashMap<>();
+        this.taskQueue = new DeduplicatingPriorityBlockingQueue<>(
+            properties.getMaxQueueSize(),
+            properties.isEnableDeduplication(),
+            Task::getDeduplicationKey
+        );
+        
+        // 初始化监控指标
+        this.metrics = queueMetrics.getOrCreateQueueMetrics(queueName);
+        this.metrics.setQueueCapacity(properties.getMaxQueueSize());
     }
 
     /**
@@ -58,36 +63,27 @@ public class GenericTaskQueue<T> {
      */
     public boolean enqueueTask(Task<T> task) {
         try {
-            if (properties.isEnableDeduplication()) {
-                String deduplicationKey = task.getDeduplicationKey();
-                Task<T> existingTask = deduplicationMap.putIfAbsent(deduplicationKey, task);
-                
-                if (existingTask != null) {
-                    totalDeduplicated.incrementAndGet();
+            boolean success = taskQueue.offer(task);
+            
+            if (success) {
+                metrics.recordTaskEnqueued();
+                log.debug("任务已加入队列，taskId: {}, queueName: {}, 当前队列大小: {}", 
+                         task.getTaskId(), queueName, taskQueue.size());
+            } else {
+                if (properties.isEnableDeduplication()) {
+                    metrics.recordTaskDeduplicated();
                     log.debug("检测到重复任务，已丢弃，taskId: {}, queueName: {}", 
                              task.getTaskId(), queueName);
-                    return false;
-                }
-            }
-
-            // 检查队列容量
-            if (taskQueue.size() >= properties.getMaxQueueSize()) {
-                if (task.isDiscardable()) {
-                    log.warn("队列已满，丢弃可丢弃任务，taskId: {}, queueName: {}", 
-                            task.getTaskId(), queueName);
-                    return false;
                 } else {
-                    log.error("队列已满，无法添加任务，taskId: {}, queueName: {}", 
+                    log.warn("队列已满，无法添加任务，taskId: {}, queueName: {}", 
                              task.getTaskId(), queueName);
-                    return false;
                 }
             }
-
-            taskQueue.offer(task);
-            totalEnqueued.incrementAndGet();
-            log.debug("任务已加入队列，taskId: {}, queueName: {}, 当前队列大小: {}", 
-                     task.getTaskId(), queueName, taskQueue.size());
-            return true;
+            
+            // 更新队列大小指标
+            metrics.setQueueSize(taskQueue.size());
+            
+            return success;
 
         } catch (Exception e) {
             log.error("加入任务队列时发生错误，taskId: {}, queueName: {}, 错误: {}", 
@@ -125,6 +121,9 @@ public class GenericTaskQueue<T> {
             }
 
             if (!batch.isEmpty()) {
+                // 开始批处理计时
+                var batchTimer = metrics.startBatchProcessingTimer();
+                
                 try {
                     // 查找对应的处理器
                     TaskProcessor<T> processor = findProcessor(batch.get(0));
@@ -142,17 +141,27 @@ public class GenericTaskQueue<T> {
                     failedCount = batch.size();
                 }
 
-                // 从去重映射中移除已处理的任务
-                for (Task<T> task : batch) {
-                    if (properties.isEnableDeduplication()) {
-                        deduplicationMap.remove(task.getDeduplicationKey());
-                    }
-                }
+                // 停止批处理计时
+                metrics.stopBatchProcessingTimer(batchTimer);
+                
+                // 记录批处理完成
+                metrics.recordBatchProcessed();
             }
 
             totalProcessed.addAndGet(processedCount);
             totalFailed.addAndGet(failedCount);
             lastProcessTime.set(System.currentTimeMillis());
+
+            // 记录处理结果
+            for (int i = 0; i < processedCount; i++) {
+                metrics.recordTaskProcessed();
+            }
+            for (int i = 0; i < failedCount; i++) {
+                metrics.recordTaskFailed();
+            }
+
+            // 更新队列大小指标
+            metrics.setQueueSize(taskQueue.size());
 
             log.info("批量处理完成，队列: {}, 处理数量: {}, 失败数量: {}, 剩余队列大小: {}", 
                      queueName, processedCount, failedCount, taskQueue.size());
@@ -188,12 +197,13 @@ public class GenericTaskQueue<T> {
      * 获取队列统计信息
      */
     public QueueStatistics getStatistics() {
+        DeduplicatingPriorityBlockingQueue.QueueStats queueStats = taskQueue.getStats();
         return QueueStatistics.builder()
                 .queueName(queueName)
-                .queueSize(taskQueue.size())
-                .deduplicationMapSize(deduplicationMap.size())
-                .totalEnqueued(totalEnqueued.get())
-                .totalDeduplicated(totalDeduplicated.get())
+                .queueSize(queueStats.getCurrentSize())
+                .deduplicationMapSize(queueStats.getDeduplicationMapSize())
+                .totalEnqueued(queueStats.getTotalOffered())
+                .totalDeduplicated(queueStats.getTotalDeduplicated())
                 .totalProcessed(totalProcessed.get())
                 .totalFailed(totalFailed.get())
                 .lastProcessTime(lastProcessTime.get())
@@ -211,7 +221,7 @@ public class GenericTaskQueue<T> {
      * 获取去重映射大小
      */
     public int getDeduplicationMapSize() {
-        return deduplicationMap.size();
+        return taskQueue.getStats().getDeduplicationMapSize();
     }
 
     /**
@@ -219,7 +229,6 @@ public class GenericTaskQueue<T> {
      */
     public void clearQueue() {
         taskQueue.clear();
-        deduplicationMap.clear();
         log.warn("队列已清空，queueName: {}", queueName);
     }
 

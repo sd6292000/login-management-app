@@ -1,35 +1,76 @@
 server:
   port: 8080
 
+# 应用配置
 spring:
   application:
     name: login-management-app
   
+  # 数据库配置
   datasource:
-    url: jdbc:mysql://localhost:3306/login_management?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
+    url: jdbc:postgresql://localhost:5432/login_management
+    username: postgres
     password: password
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    driver-class-name: org.postgresql.Driver
   
+  # JPA配置
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQL8Dialect
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-        use_sql_comments: true
-    open-in-view: false
-  
-  security:
-    user:
-      name: admin
-      password: admin123
 
+# 队列配置
+app:
+  queue:
+    queues:
+      login-record-queue:
+        name: "login-record-queue"
+        corePoolSize: 5
+        maxPoolSize: 20
+        queueCapacity: 1000
+        threadNamePrefix: "LoginRecord-"
+        batchSize: 20
+        maxBatchSize: 50
+        processIntervalMs: 5000
+        maxRetryAttempts: 3
+        retryDelayMs: 1000
+        retryMultiplier: 2.0
+        enableDeduplication: true
+        deduplicationKeyStrategy: "DEFAULT"
+        maxQueueSize: 10000
+        enableMetrics: true
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active:default}
+
+# 日志配置
 logging:
   level:
-    com.wilsonkeh.loginmanagement: DEBUG
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE 
+    com.wilsonkeh.loginmanagement: INFO
+    com.wilsonkeh.loginmanagement.queue: DEBUG
+    com.wilsonkeh.loginmanagement.monitoring: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n" 

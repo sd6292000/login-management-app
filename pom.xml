@@ -90,6 +90,24 @@
         <groupId>org.springframework</groupId>
         <artifactId>spring-aspects</artifactId>
     </dependency>
+
+    <!-- Micrometer Core -->
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-core</artifactId>
+    </dependency>
+
+    <!-- Micrometer Registry Prometheus -->
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+
+    <!-- Micrometer Registry InfluxDB (可选，用于InfluxDB) -->
+<!--    <dependency>-->
+<!--        <groupId>io.micrometer</groupId>-->
+<!--        <artifactId>micrometer-registry-influxdb</artifactId>-->
+<!--    </dependency>-->
     </dependencies>
 
     <build>
