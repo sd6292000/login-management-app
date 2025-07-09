@@ -59,6 +59,28 @@ app:
         threads: 2
         poll-timeout: 5
 
+  # 登录频率限制配置
+  rate-limit:
+    enabled: true
+    max-attempts-per-minute: 10
+    delay-threshold: 5
+    delay-duration-ms: 1000
+
+# Resilience4j配置
+resilience4j:
+  ratelimiter:
+    instances:
+      login-default:
+        limitForPeriod: 10
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0
+        registerHealthIndicator: true
+        eventConsumerBufferSize: 100
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
   # Hazelcast配置
   hazelcast:
     cluster:
