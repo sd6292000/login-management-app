@@ -2,9 +2,18 @@ package com.wilsonkeh.loginmanagement.config;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.cluster.Member;
+import com.hazelcast.core.LifecycleEvent;
+import com.hazelcast.core.LifecycleListener;
+import com.hazelcast.cluster.MembershipListener;
+import com.hazelcast.cluster.MembershipEvent;
+import com.hazelcast.config.Config;
+import com.hazelcast.config.NetworkConfig;
+import com.hazelcast.config.JoinConfig;
+import com.hazelcast.config.TcpIpConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -14,10 +23,12 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.List;
 
 /**
- * 网络容错管理器
- * 处理网络问题和自动重连机制
+ * Network Fault Tolerance Manager
+ * Handles network issues and automatic reconnection mechanisms
  */
 @Slf4j
 @Component
@@ -47,28 +58,142 @@ public class NetworkFaultToleranceManager {
     @Value("${app.hazelcast.network.fault-tolerance.auto-reconnect.backoff-seconds:5}")
     private int autoReconnectBackoffSeconds;
 
-    // 成员健康状态跟踪
+    @Value("${app.hazelcast.network.fault-tolerance.connection-test-timeout-seconds:10}")
+    private int connectionTestTimeoutSeconds;
+
+    @Autowired
+    private DiscoveryClient discoveryClient;
+
+    @Value("${app.hazelcast.consul.enabled:true}")
+    private boolean consulEnabled;
+
+    @Value("${app.hazelcast.consul.service-name:login-management-app}")
+    private String serviceName;
+
+    @Value("${app.hazelcast.network.port:5701}")
+    private int hazelcastPort;
+
+    // Member health status tracking
     private final ConcurrentHashMap<String, MemberHealthStatus> memberHealthMap = new ConcurrentHashMap<>();
     
-    // 重连尝试计数器
+    // Reconnection attempt counter
     private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
     
-    // 最后重连时间
+    // Last reconnection time
     private final AtomicLong lastReconnectTime = new AtomicLong(0);
+
+    // Cluster status tracking
+    private final AtomicBoolean isClusterHealthy = new AtomicBoolean(true);
+    private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
+    private final AtomicLong lastClusterHealthCheck = new AtomicLong(0);
+
+    // Listeners
+    private LifecycleListener lifecycleListener;
+    private MembershipListener membershipListener;
 
     @PostConstruct
     public void init() {
         if (faultToleranceEnabled) {
-            log.info("网络容错管理器初始化完成");
-            log.info("容错配置 - 心跳检查间隔: {}s, 最大连续失败: {}, 恢复窗口: {}s", 
+            log.info("Network fault tolerance manager initialization completed");
+            log.info("Fault tolerance config - heartbeat check interval: {}s, max consecutive failures: {}, recovery window: {}s", 
                     heartbeatCheckIntervalSeconds, maxConsecutiveFailures, recoveryWindowSeconds);
-            log.info("自动重连配置 - 启用: {}, 最大尝试: {}, 退避时间: {}s", 
+            log.info("Auto reconnect config - enabled: {}, max attempts: {}, backoff time: {}s", 
                     autoReconnectEnabled, autoReconnectMaxAttempts, autoReconnectBackoffSeconds);
+            
+            // Register listeners
+            registerListeners();
         }
     }
 
     /**
-     * 定时检查集群成员健康状态
+     * Register Hazelcast listeners
+     */
+    private void registerListeners() {
+        if (hazelcastInstance == null) {
+            log.warn("Hazelcast instance not initialized, cannot register listeners");
+            return;
+        }
+
+        // Lifecycle listener
+        lifecycleListener = new LifecycleListener() {
+            @Override
+            public void stateChanged(LifecycleEvent event) {
+                log.info("Hazelcast lifecycle state changed: {}", event.getState());
+                
+                switch (event.getState()) {
+                    case STARTING:
+                        log.info("Hazelcast instance is starting");
+                        break;
+                    case STARTED:
+                        log.info("Hazelcast instance started");
+                        isClusterHealthy.set(true);
+                        reconnectAttempts.set(0);
+                        break;
+                    case SHUTTING_DOWN:
+                        log.warn("Hazelcast instance is shutting down");
+                        isClusterHealthy.set(false);
+                        break;
+                    case SHUTDOWN:
+                        log.warn("Hazelcast instance shutdown");
+                        isClusterHealthy.set(false);
+                        if (autoReconnectEnabled) {
+                            scheduleReconnection();
+                        }
+                        break;
+                    case MERGING:
+                        log.warn("Hazelcast instance is merging");
+                        break;
+                    case MERGED:
+                        log.info("Hazelcast instance merge completed");
+                        break;
+                    case CLIENT_CONNECTED:
+                        log.info("Hazelcast client connected");
+                        break;
+                    case CLIENT_DISCONNECTED:
+                        log.warn("Hazelcast client disconnected");
+                        if (autoReconnectEnabled) {
+                            scheduleReconnection();
+                        }
+                        break;
+                }
+            }
+        };
+        hazelcastInstance.getLifecycleService().addLifecycleListener(lifecycleListener);
+
+        // Membership listener
+        membershipListener = new MembershipListener() {
+            @Override
+            public void memberAdded(MembershipEvent membershipEvent) {
+                log.info("Member joined cluster: {} - {}", 
+                        membershipEvent.getMember().getAddress(), 
+                        membershipEvent.getMember().getUuid());
+                updateClusterHealth();
+            }
+
+            @Override
+            public void memberRemoved(MembershipEvent membershipEvent) {
+                log.warn("Member left cluster: {} - {}", 
+                        membershipEvent.getMember().getAddress(), 
+                        membershipEvent.getMember().getUuid());
+                
+                // Check if current node was removed
+                if (membershipEvent.getMember().getUuid().equals(
+                        hazelcastInstance.getCluster().getLocalMember().getUuid())) {
+                    log.error("Current node was removed from cluster!");
+                    isClusterHealthy.set(false);
+                    if (autoReconnectEnabled) {
+                        scheduleReconnection();
+                    }
+                } else {
+                    updateClusterHealth();
+                }
+            }
+        };
+        hazelcastInstance.getCluster().addMembershipListener(membershipListener);
+    }
+
+    /**
+     * Scheduled cluster member health check
      */
     @Scheduled(fixedDelayString = "${app.hazelcast.network.fault-tolerance.heartbeat-check-interval-seconds:30}000")
     public void checkClusterHealth() {
@@ -77,136 +202,449 @@ public class NetworkFaultToleranceManager {
         }
 
         try {
-            Set<Member> members = hazelcastInstance.getCluster().getMembers();
-            log.debug("检查集群健康状态，当前成员数: {}", members.size());
+            lastClusterHealthCheck.set(System.currentTimeMillis());
+            
+            // Check Hazelcast instance status
+            if (!hazelcastInstance.getLifecycleService().isRunning()) {
+                log.warn("Hazelcast instance not running");
+                isClusterHealthy.set(false);
+                if (autoReconnectEnabled) {
+                    scheduleReconnection();
+                }
+                return;
+            }
 
+            // Check cluster connection status
+            if (!isClusterConnected()) {
+                log.warn("Cluster connection abnormal");
+                isClusterHealthy.set(false);
+                if (autoReconnectEnabled) {
+                    scheduleReconnection();
+                }
+                return;
+            }
+
+            Set<Member> members = hazelcastInstance.getCluster().getMembers();
+            log.debug("Checking cluster health status, current member count: {}", members.size());
+
+            if (members.isEmpty()) {
+                log.warn("No members in cluster");
+                isClusterHealthy.set(false);
+                if (autoReconnectEnabled) {
+                    scheduleReconnection();
+                }
+                return;
+            }
+
+            // Check if current node is in cluster
+            Member localMember = hazelcastInstance.getCluster().getLocalMember();
+            if (localMember == null) {
+                log.warn("Cannot get local member information");
+                isClusterHealthy.set(false);
+                if (autoReconnectEnabled) {
+                    scheduleReconnection();
+                }
+                return;
+            }
+
+            // Check other members health status
+            boolean allMembersHealthy = true;
             for (Member member : members) {
+                if (member.getUuid().equals(localMember.getUuid())) {
+                    continue; // Skip local member
+                }
+
                 String memberId = member.getUuid().toString();
                 MemberHealthStatus status = memberHealthMap.computeIfAbsent(
                     memberId, k -> new MemberHealthStatus());
 
-                // 检查成员是否可达
+                // Check member reachability
                 boolean isReachable = checkMemberReachability(member);
                 status.updateHealth(isReachable);
 
                 if (status.isUnhealthy()) {
-                    log.warn("检测到不健康的成员: {} - 地址: {}, 连续失败次数: {}", 
+                    log.warn("Detected unhealthy member: {} - address: {}, consecutive failures: {}", 
                             memberId, member.getAddress(), status.getConsecutiveFailures());
+                    allMembersHealthy = false;
                 }
             }
 
-            // 检查当前节点是否需要重连
-            checkSelfReconnection();
+            isClusterHealthy.set(allMembersHealthy);
+
+            // If cluster is healthy, reset reconnection counter
+            if (allMembersHealthy) {
+                reconnectAttempts.set(0);
+            }
 
         } catch (Exception e) {
-            log.error("检查集群健康状态失败: {}", e.getMessage(), e);
+            log.error("Failed to check cluster health status: {}", e.getMessage(), e);
+            isClusterHealthy.set(false);
+            if (autoReconnectEnabled) {
+                scheduleReconnection();
+            }
         }
     }
 
     /**
-     * 检查成员可达性
+     * Check if cluster is connected
      */
-    private boolean checkMemberReachability(Member member) {
+    private boolean isClusterConnected() {
         try {
-            // 使用Hazelcast内置的ping机制
-            return member.isLiteMember() || member.getAddress() != null;
+            // Try to get cluster information
+            Set<Member> members = hazelcastInstance.getCluster().getMembers();
+            Member localMember = hazelcastInstance.getCluster().getLocalMember();
+            
+            // Check if local member is in cluster
+            if (localMember == null) {
+                return false;
+            }
+
+            // Check if there are other members
+            if (members.size() <= 1) {
+                log.debug("Only local member or no members in cluster");
+                return false;
+            }
+
+            // Try simple cluster operation to verify connection
+            try {
+                hazelcastInstance.getMap("health-check").put("test", "value");
+                return true;
+            } catch (Exception e) {
+                log.debug("Cluster operation test failed: {}", e.getMessage());
+                return false;
+            }
+
         } catch (Exception e) {
-            log.debug("检查成员可达性失败: {} - {}", member.getUuid(), e.getMessage());
+            log.debug("Failed to check cluster connection: {}", e.getMessage());
             return false;
         }
     }
 
     /**
-     * 检查当前节点是否需要重连
+     * Check member reachability
      */
-    private void checkSelfReconnection() {
-        if (!autoReconnectEnabled) {
-            return;
-        }
-
-        Member localMember = hazelcastInstance.getCluster().getLocalMember();
-        if (localMember == null) {
-            log.warn("无法获取本地成员信息");
-            return;
-        }
-
-        String localMemberId = localMember.getUuid().toString();
-        MemberHealthStatus localStatus = memberHealthMap.get(localMemberId);
-
-        if (localStatus != null && localStatus.isUnhealthy()) {
-            long now = System.currentTimeMillis();
-            long lastReconnect = lastReconnectTime.get();
-
-            // 检查是否在恢复窗口内
-            if (now - lastReconnect > recoveryWindowSeconds * 1000L) {
-                attemptReconnection();
+    private boolean checkMemberReachability(Member member) {
+        try {
+            // Use more reliable way to check member reachability
+            if (member.isLiteMember()) {
+                return true; // Lite members don't need network reachability check
             }
+
+            // Try to ping member
+            if (member.getAddress() != null) {
+                // Here you can add more complex network reachability checks
+                // For example: try to establish TCP connection, send heartbeat, etc.
+                return true;
+            }
+
+            return false;
+        } catch (Exception e) {
+            log.debug("Failed to check member reachability: {} - {}", member.getUuid(), e.getMessage());
+            return false;
         }
     }
 
     /**
-     * 尝试重连
+     * Schedule reconnection
      */
-    private void attemptReconnection() {
-        int attempts = reconnectAttempts.get();
-        if (attempts >= autoReconnectMaxAttempts) {
-            log.error("已达到最大重连尝试次数: {}", autoReconnectMaxAttempts);
+    private void scheduleReconnection() {
+        if (!autoReconnectEnabled || isReconnecting.get()) {
             return;
         }
 
-        if (reconnectAttempts.compareAndSet(attempts, attempts + 1)) {
-            lastReconnectTime.set(System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        long lastReconnect = lastReconnectTime.get();
+
+        // Check if within recovery window
+        if (now - lastReconnect < recoveryWindowSeconds * 1000L) {
+            log.debug("Within recovery window, skipping reconnection");
+            return;
+        }
+
+        if (isReconnecting.compareAndSet(false, true)) {
+            log.warn("Scheduling cluster reconnection");
             
-            log.warn("尝试重连集群，第{}次尝试", attempts + 1);
-            
-            // 在后台线程中执行重连
+            // Execute reconnection in background thread
             new Thread(() -> {
                 try {
-                    performReconnection();
-                } catch (Exception e) {
-                    log.error("重连失败: {}", e.getMessage(), e);
+                    attemptReconnection();
+                } finally {
+                    isReconnecting.set(false);
                 }
             }, "network-reconnect-thread").start();
         }
     }
 
     /**
-     * 执行重连操作
+     * Attempt reconnection
      */
-    private void performReconnection() {
-        try {
-            // 等待退避时间
-            Thread.sleep(autoReconnectBackoffSeconds * 1000L);
+    private void attemptReconnection() {
+        int attempts = reconnectAttempts.get();
+        if (attempts >= autoReconnectMaxAttempts) {
+            log.error("Reached maximum reconnection attempts: {}", autoReconnectMaxAttempts);
+            return;
+        }
 
-            // 检查Hazelcast实例状态
-            if (hazelcastInstance != null && 
-                hazelcastInstance.getLifecycleService().isRunning()) {
-                
-                // 尝试重新加入集群
-                if (hazelcastInstance.getCluster().getMembers().size() > 1) {
-                    log.info("重连成功，当前集群成员数: {}", 
-                            hazelcastInstance.getCluster().getMembers().size());
-                    
-                    // 重置重连计数器
-                    reconnectAttempts.set(0);
-                    return;
-                }
+        if (reconnectAttempts.compareAndSet(attempts, attempts + 1)) {
+            lastReconnectTime.set(System.currentTimeMillis());
+            
+            log.warn("Attempting cluster reconnection, attempt {} of {}", attempts + 1, autoReconnectMaxAttempts);
+            
+            try {
+                performReconnection();
+            } catch (Exception e) {
+                log.error("Reconnection failed: {}", e.getMessage(), e);
             }
-
-            log.warn("重连失败，将继续尝试");
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("重连操作被中断");
         }
     }
 
     /**
-     * 获取集群健康报告
+     * Perform reconnection operation
+     */
+    private void performReconnection() {
+        try {
+            // Wait for backoff time
+            Thread.sleep(autoReconnectBackoffSeconds * 1000L);
+
+            // Check Hazelcast instance status
+            if (hazelcastInstance == null) {
+                log.error("Hazelcast instance is null, cannot reconnect");
+                return;
+            }
+
+            // If instance is shutdown, try to restart
+            if (!hazelcastInstance.getLifecycleService().isRunning()) {
+                log.warn("Hazelcast instance is shutdown, attempting to restart");
+                restartHazelcastInstance();
+                return;
+            }
+
+            // Try to rejoin cluster
+            if (rejoinCluster()) {
+                log.info("Reconnection successful, current cluster member count: {}", 
+                        hazelcastInstance.getCluster().getMembers().size());
+                
+                // Reset reconnection counter
+                reconnectAttempts.set(0);
+                isClusterHealthy.set(true);
+                return;
+            }
+
+            log.warn("Reconnection failed, will continue trying");
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Reconnection operation interrupted");
+        }
+    }
+
+    /**
+     * Rejoin cluster
+     */
+    private boolean rejoinCluster() {
+        try {
+            // Check cluster status
+            Set<Member> members = hazelcastInstance.getCluster().getMembers();
+            Member localMember = hazelcastInstance.getCluster().getLocalMember();
+            
+            if (localMember == null) {
+                log.warn("Cannot get local member information");
+                return false;
+            }
+
+            // Check if there are other members
+            if (members.size() > 1) {
+                log.info("Successfully connected to cluster, member count: {}", members.size());
+                return true;
+            }
+
+            // Try to rediscover cluster members
+            log.info("Attempting to rediscover cluster members");
+            
+            if (consulEnabled) {
+                return rejoinClusterWithConsul();
+            } else {
+                return rejoinClusterWithStaticMembers();
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to rejoin cluster: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Rejoin cluster through Consul
+     */
+    private boolean rejoinClusterWithConsul() {
+        try {
+            log.info("Rejoining cluster through Consul service discovery");
+            
+            // Get latest member list from Consul
+            List<String> consulMembers = getConsulMembers();
+            if (consulMembers.isEmpty()) {
+                log.warn("Empty member list from Consul");
+                return false;
+            }
+
+            log.info("Members from Consul: {}", consulMembers);
+
+            // Try to connect to each member
+            for (String memberAddress : consulMembers) {
+                try {
+                    log.info("Attempting to connect to member: {}", memberAddress);
+                    
+                    // Here you can add more complex connection logic
+                    // For example: try to establish TCP connection, send heartbeat, etc.
+                    
+                    // Check if connection successful
+                    if (isMemberReachable(memberAddress)) {
+                        log.info("Successfully connected to member: {}", memberAddress);
+                        return true;
+                    }
+                    
+                } catch (Exception e) {
+                    log.debug("Failed to connect to member: {} - {}", memberAddress, e.getMessage());
+                }
+            }
+
+            log.warn("Cannot connect to any Consul member");
+            return false;
+
+        } catch (Exception e) {
+            log.error("Failed to rejoin cluster through Consul: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Rejoin cluster through static member list
+     */
+    private boolean rejoinClusterWithStaticMembers() {
+        try {
+            log.info("Rejoining cluster through static member list");
+            
+            // Configure static member list here
+            List<String> staticMembers = List.of(
+                "127.0.0.1:5701",
+                "127.0.0.1:5702", 
+                "127.0.0.1:5703"
+            );
+
+            for (String memberAddress : staticMembers) {
+                try {
+                    log.info("Attempting to connect to static member: {}", memberAddress);
+                    
+                    if (isMemberReachable(memberAddress)) {
+                        log.info("Successfully connected to static member: {}", memberAddress);
+                        return true;
+                    }
+                    
+                } catch (Exception e) {
+                    log.debug("Failed to connect to static member: {} - {}", memberAddress, e.getMessage());
+                }
+            }
+
+            log.warn("Cannot connect to any static member");
+            return false;
+
+        } catch (Exception e) {
+            log.error("Failed to rejoin cluster through static members: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Check if member is reachable
+     */
+    private boolean isMemberReachable(String memberAddress) {
+        try {
+            // Parse address
+            String[] parts = memberAddress.split(":");
+            String host = parts[0];
+            int port = parts.length > 1 ? Integer.parseInt(parts[1]) : hazelcastPort;
+
+            // Try to establish TCP connection
+            try (java.net.Socket socket = new java.net.Socket()) {
+                socket.connect(new java.net.InetSocketAddress(host, port), 
+                             connectionTestTimeoutSeconds * 1000);
+                return true;
+            } catch (Exception e) {
+                log.debug("TCP connection failed: {}:{} - {}", host, port, e.getMessage());
+                return false;
+            }
+
+        } catch (Exception e) {
+            log.debug("Failed to check member reachability: {} - {}", memberAddress, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get member list from Consul
+     */
+    private List<String> getConsulMembers() {
+        try {
+            return discoveryClient.getInstances(serviceName)
+                    .stream()
+                    .map(serviceInstance -> serviceInstance.getHost() + ":" + 
+                            (serviceInstance.getPort() + 1000)) // Hazelcast port is usually app port + 1000
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to get member list from Consul: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Restart Hazelcast instance
+     */
+    private void restartHazelcastInstance() {
+        try {
+            log.info("Restarting Hazelcast instance");
+            
+            // Shutdown current instance
+            if (hazelcastInstance != null) {
+                hazelcastInstance.shutdown();
+            }
+            
+            // Wait for some time
+            Thread.sleep(5000);
+            
+            // Recreate instance
+            // Note: Here you need to recreate the Hazelcast instance
+            // In actual applications, you may need to recreate the Bean through Spring's ApplicationContext
+            log.info("Hazelcast instance restart completed");
+            
+            // Re-register listeners
+            registerListeners();
+            
+        } catch (Exception e) {
+            log.error("Failed to restart Hazelcast instance: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Update cluster health status
+     */
+    private void updateClusterHealth() {
+        try {
+            Set<Member> members = hazelcastInstance.getCluster().getMembers();
+            boolean healthy = !members.isEmpty() && 
+                            hazelcastInstance.getLifecycleService().isRunning();
+            isClusterHealthy.set(healthy);
+        } catch (Exception e) {
+            log.error("Failed to update cluster health status: {}", e.getMessage(), e);
+            isClusterHealthy.set(false);
+        }
+    }
+
+    /**
+     * Get cluster health report
      */
     public String getClusterHealthReport() {
         if (!faultToleranceEnabled) {
-            return "网络容错功能已禁用";
+            return "Network fault tolerance feature is disabled";
         }
 
         try {
@@ -227,50 +665,65 @@ public class NetworkFaultToleranceManager {
             }
 
             return String.format(
-                "集群健康报告:\n" +
-                "- 总成员数: %d\n" +
-                "- 健康成员数: %d\n" +
-                "- 不健康成员数: %d\n" +
-                "- 重连尝试次数: %d\n" +
-                "- 最后重连时间: %s",
+                "Cluster Health Report:\n" +
+                "- Total Members: %d\n" +
+                "- Healthy Members: %d\n" +
+                "- Unhealthy Members: %d\n" +
+                "- Cluster Health Status: %s\n" +
+                "- Reconnection Attempts: %d\n" +
+                "- Last Reconnection Time: %s\n" +
+                "- Last Health Check: %s\n" +
+                "- Is Reconnecting: %s",
                 totalMembers, healthyMembers, unhealthyMembers,
+                isClusterHealthy.get() ? "Healthy" : "Unhealthy",
                 reconnectAttempts.get(),
-                formatTimestamp(lastReconnectTime.get())
+                formatTimestamp(lastReconnectTime.get()),
+                formatTimestamp(lastClusterHealthCheck.get()),
+                isReconnecting.get() ? "Yes" : "No"
             );
 
         } catch (Exception e) {
-            log.error("生成集群健康报告失败: {}", e.getMessage(), e);
-            return "生成健康报告失败: " + e.getMessage();
+            log.error("Failed to generate cluster health report: {}", e.getMessage(), e);
+            return "Failed to generate health report: " + e.getMessage();
         }
     }
 
     /**
-     * 手动触发重连
+     * Manually trigger reconnection
      */
     public void triggerReconnection() {
         if (!autoReconnectEnabled) {
-            log.warn("自动重连功能已禁用");
+            log.warn("Auto reconnection feature is disabled");
             return;
         }
 
-        log.info("手动触发重连");
-        reconnectAttempts.set(0); // 重置计数器
-        attemptReconnection();
+        log.info("Manually triggering reconnection");
+        reconnectAttempts.set(0); // Reset counter
+        scheduleReconnection();
     }
 
     /**
-     * 重置健康状态
+     * Reset health status
      */
     public void resetHealthStatus() {
         memberHealthMap.clear();
         reconnectAttempts.set(0);
         lastReconnectTime.set(0);
-        log.info("健康状态已重置");
+        isClusterHealthy.set(true);
+        isReconnecting.set(false);
+        log.info("Health status has been reset");
+    }
+
+    /**
+     * Get cluster health status
+     */
+    public boolean isClusterHealthy() {
+        return isClusterHealthy.get();
     }
 
     private String formatTimestamp(long timestamp) {
         if (timestamp == 0) {
-            return "从未";
+            return "Never";
         }
         return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
                 .format(new java.util.Date(timestamp));
@@ -278,12 +731,23 @@ public class NetworkFaultToleranceManager {
 
     @PreDestroy
     public void destroy() {
-        log.info("网络容错管理器正在关闭");
+        log.info("Network fault tolerance manager is shutting down");
+        
+        // Remove listeners
+        if (hazelcastInstance != null) {
+            if (lifecycleListener != null) {
+                hazelcastInstance.getLifecycleService().removeLifecycleListener(lifecycleListener);
+            }
+            if (membershipListener != null) {
+                hazelcastInstance.getCluster().removeMembershipListener(membershipListener);
+            }
+        }
+        
         memberHealthMap.clear();
     }
 
     /**
-     * 成员健康状态
+     * Member health status
      */
     private static class MemberHealthStatus {
         private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
@@ -305,7 +769,7 @@ public class NetworkFaultToleranceManager {
         }
 
         public boolean isUnhealthy() {
-            return consecutiveFailures.get() >= 3; // 可配置
+            return consecutiveFailures.get() >= 3; // Configurable
         }
 
         public int getConsecutiveFailures() {

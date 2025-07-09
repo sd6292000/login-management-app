@@ -11,8 +11,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * 分布式队列监控控制器
+ * Distributed queue monitor controller
  */
 @Slf4j
 @RestController
@@ -29,82 +32,82 @@ public class DistributedQueueMonitorController {
     private NetworkFaultToleranceManager networkFaultToleranceManager;
 
     /**
-     * 获取分布式队列状态
+     * Get distributed queue status
      */
     @GetMapping("/status")
     public ResponseEntity<ApiResponse<String>> getQueueStatus() {
         try {
             String status = distributedTaskQueueManager.getQueueStatusReport();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "获取分布式队列状态成功", status));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Distributed queue status retrieved successfully", status));
         } catch (Exception e) {
-            log.error("获取分布式队列状态失败: {}", e.getMessage(), e);
+            log.error("Failed to get distributed queue status: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "获取分布式队列状态失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to get distributed queue status: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 获取分布式任务处理器状态
+     * Get distributed task processor status
      */
     @GetMapping("/processor/status")
     public ResponseEntity<ApiResponse<String>> getProcessorStatus() {
         try {
             String status = distributedLoginRecordTaskProcessor.getProcessorStatus();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "获取分布式任务处理器状态成功", status));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Distributed task processor status retrieved successfully", status));
         } catch (Exception e) {
-            log.error("获取分布式任务处理器状态失败: {}", e.getMessage(), e);
+            log.error("Failed to get distributed task processor status: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "获取分布式任务处理器状态失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to get distributed task processor status: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 启动分布式任务处理器
+     * Start distributed task processor
      */
     @PostMapping("/processor/start")
     public ResponseEntity<ApiResponse<String>> startProcessor() {
         try {
             distributedLoginRecordTaskProcessor.startProcessing();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "分布式任务处理器启动成功", "处理器已启动"));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Distributed task processor started successfully", "Processor started"));
         } catch (Exception e) {
-            log.error("启动分布式任务处理器失败: {}", e.getMessage(), e);
+            log.error("Failed to start distributed task processor: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "启动分布式任务处理器失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to start distributed task processor: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 停止分布式任务处理器
+     * Stop distributed task processor
      */
     @PostMapping("/processor/stop")
     public ResponseEntity<ApiResponse<String>> stopProcessor() {
         try {
             distributedLoginRecordTaskProcessor.stopProcessing();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "分布式任务处理器停止成功", "处理器已停止"));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Distributed task processor stopped successfully", "Processor stopped"));
         } catch (Exception e) {
-            log.error("停止分布式任务处理器失败: {}", e.getMessage(), e);
+            log.error("Failed to stop distributed task processor: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "停止分布式任务处理器失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to stop distributed task processor: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 清理过期的去重记录
+     * Clean up expired deduplication records
      */
     @PostMapping("/cleanup")
     public ResponseEntity<ApiResponse<String>> cleanupExpiredRecords() {
         try {
             distributedTaskQueueManager.cleanupExpiredDeduplicationRecords();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "清理过期去重记录成功", "清理完成"));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Expired deduplication records cleaned up successfully", "Cleanup complete"));
         } catch (Exception e) {
-            log.error("清理过期去重记录失败: {}", e.getMessage(), e);
+            log.error("Failed to clean up expired deduplication records: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "清理过期去重记录失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to clean up expired deduplication records: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 获取集群信息
+     * Get cluster information
      */
     @GetMapping("/cluster/info")
     public ResponseEntity<ApiResponse<String>> getClusterInfo() {
@@ -112,89 +115,107 @@ public class DistributedQueueMonitorController {
             String clusterInfo = distributedTaskQueueManager.getClusterInfo();
             boolean clusterHealthy = distributedTaskQueueManager.isClusterHealthy();
             
-            String info = String.format("集群信息:\n%s\n集群健康状态: %s", 
-                    clusterInfo, clusterHealthy ? "健康" : "异常");
+            String info = String.format("Cluster Info:\n%s\nCluster Health Status: %s", 
+                    clusterInfo, clusterHealthy ? "Healthy" : "Unhealthy");
             
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "获取集群信息成功", info));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Cluster information retrieved successfully", info));
         } catch (Exception e) {
-            log.error("获取集群信息失败: {}", e.getMessage(), e);
+            log.error("Failed to get cluster information: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "获取集群信息失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to get cluster information: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 获取队列统计信息
+     * Get queue statistics
      */
     @GetMapping("/stats")
     public ResponseEntity<ApiResponse<Object>> getQueueStats() {
         try {
             var stats = distributedTaskQueueManager.getQueueStats();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "获取队列统计信息成功", stats));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Queue statistics retrieved successfully", stats));
         } catch (Exception e) {
-            log.error("获取队列统计信息失败: {}", e.getMessage(), e);
+            log.error("Failed to get queue statistics: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "获取队列统计信息失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to get queue statistics: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 清空分布式队列
+     * Clear distributed queue
      */
     @DeleteMapping("/clear")
     public ResponseEntity<ApiResponse<String>> clearQueue() {
         try {
             distributedTaskQueueManager.getDistributedQueue().clear();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "清空分布式队列成功", "队列已清空"));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Distributed queue cleared successfully", "Queue cleared"));
         } catch (Exception e) {
-            log.error("清空分布式队列失败: {}", e.getMessage(), e);
+            log.error("Failed to clear distributed queue: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "清空分布式队列失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to clear distributed queue: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 获取网络容错健康报告
+     * Get network fault tolerance health report
      */
     @GetMapping("/network/health")
     public ResponseEntity<ApiResponse<String>> getNetworkHealth() {
         try {
             String healthReport = networkFaultToleranceManager.getClusterHealthReport();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "获取网络健康报告成功", healthReport));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Network health report retrieved successfully", healthReport));
         } catch (Exception e) {
-            log.error("获取网络健康报告失败: {}", e.getMessage(), e);
+            log.error("Failed to get network health report: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "获取网络健康报告失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to get network health report: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 手动触发重连
+     * Manually trigger network reconnection
      */
     @PostMapping("/network/reconnect")
-    public ResponseEntity<ApiResponse<String>> triggerReconnection() {
+    public ResponseEntity<ApiResponse<String>> triggerNetworkReconnect() {
         try {
             networkFaultToleranceManager.triggerReconnection();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "触发重连成功", "重连操作已启动"));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Network reconnection triggered", "Reconnection operation is executing in background"));
         } catch (Exception e) {
-            log.error("触发重连失败: {}", e.getMessage(), e);
+            log.error("Failed to trigger network reconnection: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "触发重连失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to trigger network reconnection: " + e.getMessage(), null));
         }
     }
 
     /**
-     * 重置网络健康状态
+     * Reset network health status
      */
     @PostMapping("/network/reset")
     public ResponseEntity<ApiResponse<String>> resetNetworkHealth() {
         try {
             networkFaultToleranceManager.resetHealthStatus();
-            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "重置网络健康状态成功", "健康状态已重置"));
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Network health status reset successfully", "All health status counters have been cleared"));
         } catch (Exception e) {
-            log.error("重置网络健康状态失败: {}", e.getMessage(), e);
+            log.error("Failed to reset network health status: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse<>("ERROR", "重置网络健康状态失败: " + e.getMessage(), null));
+                    .body(new ApiResponse<>("ERROR", "Failed to reset network health status: " + e.getMessage(), null));
+        }
+    }
+
+    /**
+     * Get network fault tolerance configuration information
+     */
+    @GetMapping("/network/config")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getNetworkConfig() {
+        try {
+            Map<String, Object> config = new HashMap<>();
+            config.put("faultToleranceEnabled", networkFaultToleranceManager.isClusterHealthy());
+            config.put("clusterHealthy", networkFaultToleranceManager.isClusterHealthy());
+            
+            return ResponseEntity.ok(new ApiResponse<>("SUCCESS", "Network configuration information retrieved successfully", config));
+        } catch (Exception e) {
+            log.error("Failed to get network configuration information: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResponse<>("ERROR", "Failed to get network configuration information: " + e.getMessage(), null));
         }
     }
 } 

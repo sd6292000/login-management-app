@@ -1,208 +1,284 @@
-# 用户登录数据管理系统
+# Login Management Application
 
-## 项目概述
+A comprehensive login management system built with Spring Boot, featuring distributed task processing, Hazelcast clustering, and resilient caching.
 
-这是一个基于Spring Boot 3 + JPA的用户登录数据管理系统，用于记录和分析用户登录行为，提供安全风险评估和数据分析功能。
+## Features
 
-## 技术栈
+- **Distributed Task Processing**: Hazelcast-based distributed queue for login record processing
+- **Network Fault Tolerance**: Automatic reconnection and health monitoring for Hazelcast cluster
+- **Resilient Caching**: Hazelcast distributed cache with Caffeine fallback for high availability
+- **Service Discovery**: Consul integration for dynamic service registration and discovery
+- **Monitoring**: Comprehensive metrics and health checks
+- **Security Analysis**: User behavior analysis and security risk assessment
 
-- **框架**: Spring Boot 3.3.0
-- **Java版本**: 21
-- **数据库**: MySQL 8.0
-- **ORM**: Spring Data JPA
-- **构建工具**: Maven
-- **其他**: Lombok, Spring Security, Validation
+## Architecture
 
-## 功能特性
+### Core Components
 
-### 1. 登录记录管理
-- 记录用户登录信息（UID、IP地址、登录时间、用户名、登录方式等）
-- 支持多种登录方式（Password、DUO、Nevis、SecurID、SSO、OAuth、API Key）
-- 设备指纹识别和地理位置记录
-- 风险评分计算和可疑活动标记
+1. **Distributed Queue System**
+   - Hazelcast-based distributed task queue
+   - Deduplication and priority handling
+   - Automatic failover and recovery
 
-### 2. 数据分析功能
-- 查询单个用户最近登录记录
-- 查询多个用户最近登录记录
-- 用户安全分析报告
-- 多用户安全分析对比
+2. **Network Fault Tolerance**
+   - Automatic cluster health monitoring
+   - Smart reconnection with exponential backoff
+   - Integration with Consul service discovery
 
-### 3. 安全特性
-- 隐私信息保护（API响应中不暴露敏感信息）
-- 风险评分算法
-- 可疑活动检测
-- 地理位置异常检测
-- 设备异常检测
+3. **Resilient Caching System**
+   - Hazelcast distributed cache as primary
+   - Caffeine local cache as fallback
+   - Automatic failover when Hazelcast is unavailable
+   - Cache monitoring and management APIs
 
-## 数据库设计
+4. **Service Layer**
+   - Login record management
+   - User security analysis
+   - Distributed task processing
 
-### 主要表结构
+## Technology Stack
 
-#### 1. user_login_records（用户登录记录表）
-- 存储所有用户登录记录
-- 包含登录详情、设备信息、地理位置、风险评分等
-- 支持高效查询和索引优化
+- **Framework**: Spring Boot 3 with Java 17
+- **Database**: PostgreSQL with JPA/Hibernate
+- **Distributed Cache**: Hazelcast with Caffeine fallback
+- **Service Discovery**: Consul
+- **Monitoring**: Micrometer with Prometheus/Grafana
+- **Build Tool**: Maven
 
-#### 2. user_security_analysis（用户安全分析表）
-- 存储用户安全分析结果
-- 包含登录统计、风险等级、异常检测结果等
-- 支持定期更新和实时分析
+## Quick Start
 
-## API接口
+### Prerequisites
 
-### 1. 创建登录记录
-```
-POST /api/login-records
-Content-Type: application/json
-
-{
-  "uid": "user001",
-  "username": "john.doe",
-  "ipAddress": "192.168.1.100",
-  "loginTime": "2024-01-15T09:30:00",
-  "loginMethod": "PASSWORD",
-  "passwordStrength": "STRONG",
-  "userAgent": "Mozilla/5.0...",
-  "traceId": "trace_001",
-  "fingerprint": "fp_001",
-  "deviceType": "DESKTOP",
-  "browserInfo": "Chrome",
-  "osInfo": "Windows 10",
-  "locationCountry": "CN",
-  "locationCity": "Beijing"
-}
-```
-
-### 2. 查询用户最近登录记录
-```
-GET /api/login-records/user/{uid}?page=0&size=10
-```
-
-### 3. 查询多个用户最近登录记录
-```
-GET /api/login-records/users?uids=user001,user002,user003&page=0&size=10
-```
-
-### 4. 获取用户安全分析
-```
-GET /api/login-records/security-analysis/{uid}
-```
-
-### 5. 获取多个用户安全分析
-```
-GET /api/login-records/security-analysis/users?uids=user001,user002,user003
-```
-
-## 安装和运行
-
-### 1. 环境要求
-- Java 21+
-- MySQL 8.0+
+- Java 17+
 - Maven 3.6+
+- PostgreSQL 12+
+- Consul (optional, for service discovery)
 
-### 2. 数据库配置
-1. 创建MySQL数据库
-2. 执行 `src/main/resources/schema.sql` 脚本
-3. 修改 `application.yml` 中的数据库连接信息
+### Configuration
 
-### 3. 运行应用
+1. **Database Configuration**
+   ```yaml
+   spring:
+     datasource:
+       url: jdbc:postgresql://localhost:5432/login_management
+       username: your_username
+       password: your_password
+   ```
+
+2. **Hazelcast Configuration**
+   ```yaml
+   app:
+     hazelcast:
+       network:
+         port: 5701
+         fault-tolerance:
+           enabled: true
+           heartbeat-check-interval-seconds: 30
+   ```
+
+3. **Cache Configuration**
+   ```yaml
+   app:
+     cache:
+       hazelcast:
+         enabled: true
+       fallback:
+         enabled: true
+         max-size: 1000
+         expire-after-write-seconds: 300
+   ```
+
+### Running the Application
+
 ```bash
-# 编译项目
-mvn clean compile
+# Clone the repository
+git clone <repository-url>
+cd login-management-app
 
-# 运行应用
+# Build the project
+mvn clean install
+
+# Run the application
 mvn spring-boot:run
 ```
 
-### 4. 访问应用
-- 应用地址: http://localhost:8080
-- 默认用户名: admin
-- 默认密码: admin123
+## API Endpoints
 
-## 配置说明
+### Login Records
 
-### 数据库配置
-```yaml
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/login_management
-    username: your_username
-    password: your_password
+- `POST /api/login-records` - Create login record
+- `GET /api/login-records/{id}` - Get login record by ID
+- `GET /api/login-records/user/{email}` - Get records by email
+- `GET /api/login-records/ip/{ipAddress}` - Get records by IP
+- `GET /api/login-records/recent` - Get recent records
+- `PUT /api/login-records/{id}` - Update login record
+- `DELETE /api/login-records/{id}` - Delete login record
+
+### Cache Management
+
+- `GET /api/cache/status` - Get cache status
+- `POST /api/cache/reset-to-primary` - Reset to Hazelcast cache
+- `POST /api/cache/force-fallback` - Force Caffeine fallback
+- `DELETE /api/cache/{cacheName}` - Clear specific cache
+- `DELETE /api/cache/clear-all` - Clear all caches
+
+### Network Monitoring
+
+- `GET /api/network/health` - Get network health status
+- `POST /api/network/reconnect` - Trigger manual reconnection
+- `POST /api/network/reset` - Reset health status
+- `GET /api/network/config` - Get network configuration
+
+### Queue Monitoring
+
+- `GET /api/queue/status` - Get queue status
+- `GET /api/queue/metrics` - Get queue metrics
+- `POST /api/queue/clear` - Clear queue
+- `GET /api/queue/tasks` - Get pending tasks
+
+## Caching Strategy
+
+### Cache Types
+
+1. **Hazelcast Distributed Cache** (Primary)
+   - Shared across cluster nodes
+   - High availability and scalability
+   - Automatic data replication
+
+2. **Caffeine Local Cache** (Fallback)
+   - Fast local access
+   - Automatic fallback when Hazelcast fails
+   - Configurable TTL and size limits
+
+### Cache Usage
+
+```java
+@Service
+public class LoginRecordService {
+    
+    @Cacheable(value = "login-records", key = "#id", unless = "#result == null")
+    public LoginRecordResponse getLoginRecordById(Long id) {
+        // Automatically cached with fallback support
+        return repository.findById(id).map(this::mapToResponse).orElse(null);
+    }
+    
+    @CachePut(value = "login-records", key = "#result.id")
+    @CacheEvict(value = {"user-login-records", "ip-login-records"}, allEntries = true)
+    public LoginRecordResponse createLoginRecord(LoginRecordRequest request) {
+        // Update cache and evict related caches
+        return repository.save(mapToEntity(request));
+    }
+}
 ```
 
-### 安全配置
-```yaml
-spring:
-  security:
-    user:
-      name: admin
-      password: admin123
+## Monitoring and Health Checks
+
+### Health Endpoints
+
+- `GET /actuator/health` - Application health
+- `GET /actuator/metrics` - Application metrics
+- `GET /api/cache/status` - Cache health
+- `GET /api/network/health` - Network health
+
+### Key Metrics
+
+- Cache hit/miss rates
+- Queue processing rates
+- Network connectivity status
+- Hazelcast cluster health
+
+## Development
+
+### Project Structure
+
+```
+src/
+├── main/
+│   ├── java/
+│   │   └── com/wilsonkeh/loginmanagement/
+│   │       ├── config/           # Configuration classes
+│   │       ├── controller/       # REST controllers
+│   │       ├── dto/             # Data transfer objects
+│   │       ├── entity/          # JPA entities
+│   │       ├── queue/           # Distributed queue components
+│   │       ├── repository/      # Data access layer
+│   │       └── service/         # Business logic
+│   └── resources/
+│       ├── application.yml      # Application configuration
+│       └── schema.sql          # Database schema
+└── test/
+    └── java/
+        └── com/wilsonkeh/loginmanagement/
+            ├── queue/           # Queue tests
+            └── service/         # Service tests
 ```
 
-## 性能优化
+### Running Tests
 
-### 1. 数据库索引
-- 为常用查询字段创建复合索引
-- 支持分页查询优化
-- 使用覆盖索引减少IO
+```bash
+# Run all tests
+mvn test
 
-### 2. 查询优化
-- 使用JPQL优化复杂查询
-- 实现分页查询避免大数据量问题
-- 使用DTO减少数据传输量
+# Run specific test class
+mvn test -Dtest=CacheIntegrationTest
 
-### 3. 缓存策略
-- 可扩展Redis缓存支持
-- 查询结果缓存
-- 安全分析结果缓存
+# Run with coverage
+mvn test jacoco:report
+```
 
-## 安全考虑
+## Deployment
 
-### 1. 数据保护
-- API响应中不暴露敏感信息（如用户名）
-- 使用DTO进行数据传输
-- 输入验证和SQL注入防护
+### Docker
 
-### 2. 访问控制
-- Spring Security集成
-- API访问权限控制
-- 敏感操作日志记录
+```dockerfile
+FROM openjdk:17-jre-slim
+COPY target/login-management-app-*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "/app.jar"]
+```
 
-### 3. 风险检测
-- 实时风险评分计算
-- 异常行为检测
-- 地理位置异常检测
+### Kubernetes
 
-## 扩展功能
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: login-management-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: login-management-app
+  template:
+    metadata:
+      labels:
+        app: login-management-app
+    spec:
+      containers:
+      - name: login-management-app
+        image: login-management-app:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+```
 
-### 1. 可扩展的风险评分算法
-- 支持自定义风险规则
-- 机器学习模型集成
-- 实时威胁情报集成
+## Documentation
 
-### 2. 监控和告警
-- 实时监控面板
-- 异常行为告警
-- 安全事件通知
+- [Cache Usage Guide](CACHE_USAGE_GUIDE.md) - Detailed caching documentation
+- [Network Fault Tolerance](HAZELCAST_ADVANCED_CONFIG.md) - Network resilience guide
+- [Queue Optimization](QUEUE_OPTIMIZATION.md) - Distributed queue optimization
+- [Monitoring Guide](MONITORING.md) - Monitoring and metrics guide
 
-### 3. 数据导出
-- 支持多种格式导出
-- 定期报告生成
-- 数据备份功能
+## Contributing
 
-## 开发规范
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
 
-### 1. 代码规范
-- 遵循SOLID原则
-- 使用Lombok简化代码
-- 统一异常处理
-- 完整的API文档
+## License
 
-### 2. 测试
-- 单元测试覆盖
-- 集成测试
-- API测试
-
-## 许可证
-
-MIT License 
+This project is licensed under the MIT License - see the LICENSE file for details. 

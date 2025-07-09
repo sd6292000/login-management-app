@@ -99,6 +99,16 @@ app:
       refresh-interval-seconds: 30
       service-tag: hazelcast
 
+  # Cache configuration
+  cache:
+    hazelcast:
+      enabled: true
+    fallback:
+      enabled: true
+      max-size: 1000
+      expire-after-write-seconds: 300
+      expire-after-access-seconds: 600
+
 # Spring Cloud Consul配置
 spring:
   cloud:

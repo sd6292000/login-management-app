@@ -17,6 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
 
 @Service
 public class LoginRecordServiceImpl implements LoginRecordService {
@@ -29,6 +32,8 @@ public class LoginRecordServiceImpl implements LoginRecordService {
 
     @Override
     @Transactional
+    @CachePut(value = "login-records", key = "#result.id")
+    @CacheEvict(value = {"user-login-records", "ip-login-records", "recent-login-records"}, allEntries = true)
     public LoginRecordResponse createLoginRecord(LoginRecordRequest request) {
         // 检查traceId是否已存在
         loginRecordRepository.findByTraceId(request.traceId())
@@ -79,6 +84,7 @@ public class LoginRecordServiceImpl implements LoginRecordService {
     }
 
     @Override
+    @Cacheable(value = "user-security-analysis", key = "#uid", unless = "#result == null")
     public UserSecurityAnalysisResponse getUserSecurityAnalysis(String uid) {
         UserSecurityAnalysis analysis = securityAnalysisRepository.findLatestAnalysisByUid(uid)
                 .orElseGet(() -> generateSecurityAnalysis(uid));
@@ -157,6 +163,8 @@ public class LoginRecordServiceImpl implements LoginRecordService {
     }
 
     @Transactional
+    @CachePut(value = "user-security-analysis", key = "#uid")
+    @CacheEvict(value = "user-security-analysis", key = "#uid")
     private void updateUserSecurityAnalysis(String uid) {
         LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
         
