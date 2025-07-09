@@ -27,6 +27,9 @@ public interface UserLoginRecordRepository extends JpaRepository<UserLoginRecord
     @Query("SELECT l FROM UserLoginRecord l WHERE l.traceId = :traceId")
     Optional<UserLoginRecord> findByTraceId(@Param("traceId") String traceId);
 
+    @Query("SELECT l FROM UserLoginRecord l WHERE l.traceId IN :traceIds")
+    List<UserLoginRecord> findByTraceIds(@Param("traceIds") List<String> traceIds);
+
     @Query("SELECT COUNT(l) FROM UserLoginRecord l WHERE l.uid = :uid AND l.loginTime >= :startTime")
     Long countByUidAndLoginTimeAfter(@Param("uid") String uid, @Param("startTime") LocalDateTime startTime);
 

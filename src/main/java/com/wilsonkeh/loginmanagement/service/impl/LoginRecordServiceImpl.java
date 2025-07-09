@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
+import java.util.Set;
 
 @Service
 public class LoginRecordServiceImpl implements LoginRecordService {
@@ -69,6 +70,78 @@ public class LoginRecordServiceImpl implements LoginRecordService {
         updateUserSecurityAnalysis(request.uid());
 
         return LoginRecordResponse.fromEntity(savedRecord);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"user-login-records", "ip-login-records", "recent-login-records"}, allEntries = true)
+    public List<LoginRecordResponse> createLoginRecordsBatch(List<LoginRecordRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return List.of();
+        }
+
+        // 检查所有traceId是否已存在
+        List<String> traceIds = requests.stream()
+                .map(LoginRecordRequest::traceId)
+                .toList();
+        
+        List<UserLoginRecord> existingRecords = loginRecordRepository.findByTraceIds(traceIds);
+        if (!existingRecords.isEmpty()) {
+            List<String> existingTraceIds = existingRecords.stream()
+                    .map(UserLoginRecord::getTraceId)
+                    .toList();
+            throw new IllegalArgumentException("以下Trace ID已存在: " + existingTraceIds);
+        }
+
+        // 批量创建实体对象
+        List<UserLoginRecord> loginRecords = requests.stream()
+                .map(this::createLoginRecordEntity)
+                .toList();
+
+        // 批量保存
+        List<UserLoginRecord> savedRecords = loginRecordRepository.saveAll(loginRecords);
+
+        // 批量更新安全分析（按用户分组）
+        Set<String> uniqueUids = requests.stream()
+                .map(LoginRecordRequest::uid)
+                .collect(Collectors.toSet());
+        
+        for (String uid : uniqueUids) {
+            updateUserSecurityAnalysis(uid);
+        }
+
+        return savedRecords.stream()
+                .map(LoginRecordResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 从请求创建登录记录实体
+     */
+    private UserLoginRecord createLoginRecordEntity(LoginRecordRequest request) {
+        UserLoginRecord loginRecord = new UserLoginRecord();
+        loginRecord.setUid(request.uid());
+        loginRecord.setUsername(request.username());
+        loginRecord.setIpAddress(request.ipAddress());
+        loginRecord.setLoginTime(request.loginTime());
+        loginRecord.setLoginMethod(UserLoginRecord.LoginMethod.valueOf(request.loginMethod().toUpperCase()));
+        loginRecord.setPasswordStrength(request.passwordStrength());
+        loginRecord.setUserAgent(request.userAgent());
+        loginRecord.setTraceId(request.traceId());
+        loginRecord.setFingerprint(request.fingerprint());
+        loginRecord.setSessionId(request.sessionId());
+        loginRecord.setDeviceType(request.deviceType());
+        loginRecord.setBrowserInfo(request.browserInfo());
+        loginRecord.setOsInfo(request.osInfo());
+        loginRecord.setLocationCountry(request.locationCountry());
+        loginRecord.setLocationCity(request.locationCity());
+
+        // 计算风险评分
+        int riskScore = calculateRiskScore(loginRecord);
+        loginRecord.setRiskScore(riskScore);
+        loginRecord.setIsSuspicious(riskScore > 70);
+
+        return loginRecord;
     }
 
     @Override

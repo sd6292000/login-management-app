@@ -43,6 +43,8 @@ app:
         deduplicationKeyStrategy: "DEFAULT"
         maxQueueSize: 10000
         enableMetrics: true
+        enableParallelProcessing: true  # 启用并行处理
+        parallelThreadPoolSize: 4       # 并行处理线程池大小
     
     # 分布式队列配置
     distributed:

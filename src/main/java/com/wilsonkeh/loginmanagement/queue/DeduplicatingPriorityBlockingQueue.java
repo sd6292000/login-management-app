@@ -25,8 +25,11 @@ public class DeduplicatingPriorityBlockingQueue<T> {
 
     public DeduplicatingPriorityBlockingQueue(int maxSize, boolean enableDeduplication, 
                                             Function<Task<T>, String> deduplicationKeyExtractor) {
-        this.queue = new PriorityBlockingQueue<>(maxSize, 
-            (t1, t2) -> Integer.compare(t1.getPriority(), t2.getPriority()));
+        // Use LinkedBlockingQueue instead of PriorityBlockingQueue since task ordering/prioritization is not required.
+        // If you do not need to sort tasks by priority, LinkedBlockingQueue is more appropriate and efficient.
+        // If you need FIFO (first-in, first-out) order, LinkedBlockingQueue guarantees this.
+        // If you want to support prioritization in the future, you can switch back to PriorityBlockingQueue.
+        this.queue = new java.util.concurrent.LinkedBlockingQueue<>(maxSize);
         this.deduplicationMap = new ConcurrentHashMap<>();
         this.maxSize = maxSize;
         this.enableDeduplication = enableDeduplication;

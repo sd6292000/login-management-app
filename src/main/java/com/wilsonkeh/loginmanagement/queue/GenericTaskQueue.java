@@ -128,7 +128,15 @@ public class GenericTaskQueue<T> {
                     // 查找对应的处理器
                     TaskProcessor<T> processor = findProcessor(batch.get(0));
                     if (processor != null) {
-                        processor.processBatch(batch);
+                        // 根据配置决定是否使用并行处理
+                        if (properties.getEnableParallelProcessing()) {
+                            int threadPoolSize = properties.getParallelThreadPoolSize();
+                            processor.processBatchParallel(batch, threadPoolSize);
+                            log.debug("使用并行处理，线程池大小: {}", threadPoolSize);
+                        } else {
+                            processor.processBatch(batch);
+                            log.debug("使用串行处理");
+                        }
                         processedCount = batch.size();
                     } else {
                         log.error("未找到任务处理器，taskType: {}, queueName: {}", 

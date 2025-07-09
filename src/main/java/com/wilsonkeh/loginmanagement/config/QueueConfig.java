@@ -30,6 +30,8 @@ public class QueueConfig {
         private String deduplicationKeyStrategy = "DEFAULT"; // DEFAULT, CUSTOM, NONE
         private int maxQueueSize = 10000;
         private boolean enableMetrics = true;
+        private boolean enableParallelProcessing = false; // 是否启用并行处理
+        private int parallelThreadPoolSize = 4; // 并行处理线程池大小
     }
     
     /**
