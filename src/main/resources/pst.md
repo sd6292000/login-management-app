@@ -24,5 +24,5 @@ Operationally, this migration will align our CPA configurations with CMDB, help 
 
 Right now, we’ve completed PROD deployment, have SSL endpoints ready, and finished testing. Next, we’ll move through Foundation (completing SSL for critical admin apps), Pilot Rollout (updating PAC files and tracking programmatic cutover), Mass Migration (switching to HTTPS-only by default), Exception Handling (managing edge cases), and finally Decommissioning (removing HTTP load balancers and cleaning up DNS).
 
-In closing, this project isn’t just about switching a protocol—it’s about keeping Nomura’s applications secure, compliant, and ready for the future. It’s a big lift, but with our careful strategy and mitigation plans, we’re confident we’ll deliver value with minimal disruption.
+In closing, this project isn’t just about switching a protocol—it’s about keeping WebNewServices’s applications secure, compliant, and ready for the future. It’s a big lift, but with our careful strategy and mitigation plans, we’re confident we’ll deliver value with minimal disruption.
 Would you like me to help you add speaker notes for each slide to make the presentation flow even smoother?
