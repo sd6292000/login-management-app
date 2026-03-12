@@ -1,0 +1,225 @@
+Detailed User Stories (English Version)
+Template Fetcher User Stories
+Story 1: Basic Template Matching & Rendering
+As a Gateway Service,
+I want to invoke Template Fetcher with path, tags, language, and business variables,
+So that I receive a fully rendered static HTML page using the most appropriate template.
+Acceptance Criteria
+Given a valid path, language, and variable set, when calling /api/template/fetch, the response returns 200 OK with text/html content type.
+Given a path that maps to an active template, the returned HTML matches the template content with all variables replaced.
+Given no matching template for the path, the system falls back to the global default template (if configured).
+Technical Implementation Notes
+Implement a TemplateFetcherController (Spring Boot REST) to expose the /api/template/fetch endpoint.
+Use a TemplateMatcher service to query Template Manager’s /api/templates/match API with path/tags/lang parameters.
+Use custom string replacement (no third-party template engines) to substitute {{variableName}} placeholders:
+public String renderVariables(String templateHtml, Map<String, Object> variables) {
+    String result = templateHtml;
+    for (Map.Entry<String, Object> entry : variables.entrySet()) {
+        String placeholder = "{{" + entry.getKey() + "}}";
+        result = result.replace(placeholder, String.valueOf(entry.getValue()));
+    }
+    return result;
+}
+Story 2: Multi-Criteria Template Selection
+As a Template Fetcher,
+I want to match templates using multiple criteria (path, tags, language, library ID),
+So that the most relevant template is selected even when multiple candidates exist.
+Acceptance Criteria
+Given multiple templates with the same path but different tags, the template with the highest tag match count is selected.
+Given a template with exact path + language match, it is prioritized over templates with partial tag matches.
+Given no exact path match, the system uses the template with the most matching tags + exact language.
+Technical Implementation Notes
+Implement a scoring algorithm in TemplateMatcher:
++10 points for exact path match
++5 points per matching tag
++3 points for exact language match
+Select the template with the highest total score.
+Use Spring Data JPA Specifications in Template Manager to build dynamic queries for multi-criteria filtering.
+Story 3: Local Cache for Template Data
+As a Template Fetcher,
+I want to cache template metadata and raw HTML locally,
+So that repeated requests avoid querying Template Manager and reduce latency.
+Acceptance Criteria
+Given a repeated request with the same path/tags/lang, the second request is served from cache (verified via cache hit logs).
+Given a cached template, when the TTL expires, the next request fetches fresh data from Template Manager.
+Given a cache size limit, the least recently used (LRU) templates are evicted when the limit is reached.
+Technical Implementation Notes
+Use Caffeine as the local cache provider (configured via Spring Cache):
+spring.cache.type=caffeine
+spring.cache.caffeine.spec=maximumSize=1000,expireAfterWrite=10m
+Cache key format: template:{path}:{lang}:{tagsHash} (hash tags to keep key length manageable).
+Annotate TemplateFetcherService methods with @Cacheable("templates") to enable caching.
+Story 4: Cache Invalidation on Template Updates
+As a Template Fetcher,
+I want to invalidate cached templates when Template Manager updates/deletes a template,
+So that stale template content is not served to users.
+Acceptance Criteria
+Given a cached template, when Template Manager sends an update event, the cache entry is removed.
+Given a deleted template, all cache entries referencing that template are invalidated.
+Given multiple Template Fetcher instances, all instances receive the invalidation event (distributed deployment).
+Technical Implementation Notes
+For single-instance deployments: Use Spring ApplicationEvent (publish TemplateUpdatedEvent from Template Manager, listen in Template Fetcher to evict cache).
+For distributed deployments: Use RabbitMQ/Kafka to broadcast cache invalidation events across all instances.
+Example event listener:
+@EventListener
+public void onTemplateUpdated(TemplateUpdatedEvent event) {
+    String cacheKey = "template:" + event.getPath() + ":" + event.getLang();
+    cacheManager.getCache("templates").evict(cacheKey);
+}
+Story 5: Multi-Language Support via Ref Data
+As a Template Fetcher,
+I want to integrate with Ref Data service to replace multi-language placeholders,
+So that the rendered HTML displays localized content based on the user’s language preference.
+Acceptance Criteria
+Given a template with {{i18n.welcome.title}} and language zh-CN, the placeholder is replaced with the Chinese value from Ref Data.
+Given a missing i18n key in the target language, the system falls back to the default language (e.g., en) value.
+Given no value for a key in any language, the placeholder remains as {{i18n.key}} or shows [Missing Translation].
+Technical Implementation Notes
+Extract {{i18n.*}} placeholders using regex:
+private Set<String> extractI18nKeys(String templateHtml) {
+    Pattern pattern = Pattern.compile("\\{\\{i18n\\.(.*?)\\}\\}");
+    Matcher matcher = pattern.matcher(templateHtml);
+    Set<String> keys = new HashSet<>();
+    while (matcher.find()) {
+        keys.add(matcher.group(1));
+    }
+    return keys;
+}
+Call Ref Data API /api/i18n?lang={lang}&keys={comma-separated-keys} to fetch localized values in bulk.
+Replace i18n placeholders before replacing business variables in the template.
+Story 6: Fallback to Default Template
+As a Template Fetcher,
+I want to fall back to a pre-configured default template when no matching template is found,
+So that the system returns a valid HTML page instead of an error response.
+Acceptance Criteria
+Given a path with no matching templates, the system returns the global default template.
+Given a configured default template, it is used for all unmatched requests.
+Given no default template configured, the system returns a 404 Not Found with a minimal error HTML.
+Technical Implementation Notes
+Define a @Value("${template.default.path}") property to specify the default template path.
+In TemplateMatcher, if no templates are found, query the default template path.
+If the default template also does not exist, return a minimal error HTML snippet.
+Template Manager User Stories
+Story 1: Create Template via Management UI
+As a Template Administrator,
+I want to create a new template via a web UI (with HTML editor, tag input, path, and language selection),
+So that I can define new templates and persist them to the database.
+Acceptance Criteria
+Given the template creation page, when I enter a unique path, select a language, input HTML (with placeholders), and add tags, the template is saved to the database.
+Given a duplicate path + lang combination, the system shows an error and prevents creation.
+Given a valid submission, the new template appears in the list with active status.
+Technical Implementation Notes
+Build a Vue 3 + Element Plus frontend (or Thymeleaf for server-side rendering) for template management.
+Implement a JPA entity Template with unique constraint on path + lang:
+@Entity
+@Table(name = "template", uniqueConstraints = @UniqueConstraint(columnNames = {"path", "lang"}))
+public class Template {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String path;
+    private String lang;
+    @Column(columnDefinition = "TEXT")
+    private String htmlContent;
+    private String tags; // comma-separated
+    private Integer version = 1;
+    private Boolean isActive = true;
+    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime updatedAt = LocalDateTime.now();
+    // getters/setters
+}
+Expose a POST /api/templates endpoint to handle creation requests.
+Story 2: Edit/Delete Template via Management UI
+As a Template Administrator,
+I want to edit or delete existing templates via the web UI,
+So that I can update template content or remove outdated templates.
+Acceptance Criteria
+Given an existing template, when I edit its HTML/tags and save, the template version increments by 1 (e.g., v1 → v2).
+Given a deletion request, the template is marked as inactive (soft delete) or removed from the database (configurable).
+Given an edited template, all cached entries for that template are invalidated.
+Technical Implementation Notes
+Expose PUT /api/templates/{id} and DELETE /api/templates/{id} endpoints.
+Implement soft delete by setting isActive = false (preserves history) instead of hard deletion.
+Publish TemplateUpdatedEvent/TemplateDeletedEvent after edit/delete to trigger cache invalidation in Template Fetcher.
+Story 3: Template Metadata Management (Tags & Path)
+As a Template Administrator,
+I want to assign tags and a unique path to each template,
+So that Template Fetcher can accurately locate templates based on routing and categorization.
+Acceptance Criteria
+Given a template, when I assign multiple tags (e.g., "homepage", "marketing"), the tags are stored as a comma-separated string.
+Given a template path, it must be unique per language (no duplicate path + lang).
+Given a tag search, the system returns all templates with matching tags.
+Technical Implementation Notes
+Store tags as a comma-separated string (or use a template_tag join table for better querying).
+Use Spring Data JPA Specifications to build dynamic queries for filtering by tags/path/lang:
+public List<Template> findByTagsContaining(String tag) {
+    return templateRepository.findAll((root, query, cb) -> cb.like(root.get("tags"), "%" + tag + "%"));
+}
+Story 4: Template Version Control
+As a Template Administrator,
+I want to maintain version history for templates,
+So that I can roll back to a previous version if a new template causes issues.
+Acceptance Criteria
+Given a template edit, the version number increments by 1.
+Given a template, I can view all historical versions via the UI.
+Given a previous version, I can restore it to the active state.
+Technical Implementation Notes
+Create a TemplateHistory entity to store all versions (copies of Template fields + version number).
+On each edit, save the current state to TemplateHistory before updating the main Template record.
+Expose GET /api/templates/{id}/history to retrieve version history.
+Story 5: Template Query API for Template Fetcher
+As a Template Fetcher Service,
+I want to call Template Manager’s API with path, tags, and language parameters,
+So that I can retrieve the best-matching template’s HTML content.
+Acceptance Criteria
+Given a request with path="/home", lang="en", tags="homepage", the API returns the highest-scoring matching template.
+Given no matching templates, the API returns 404 Not Found (or the default template if configured).
+Given a valid match, the API returns the template’s HTML, path, lang, and tags.
+Technical Implementation Notes
+Expose a GET /api/templates/match endpoint in Template Manager.
+Implement the scoring algorithm (path match + tag match + lang match) in TemplateManagerService.
+Example endpoint:
+@GetMapping("/match")
+public ResponseEntity<TemplateDTO> matchTemplate(
+        @RequestParam String path,
+        @RequestParam(required = false) String tags,
+        @RequestParam(defaultValue = "en") String lang) {
+    Template template = templateManagerService.findBestMatch(path, tags, lang);
+    if (template == null) {
+        return ResponseEntity.notFound().build();
+    }
+    return ResponseEntity.ok(new TemplateDTO(template));
+}
+Story 6: Template Preview Functionality
+As a Template Administrator,
+I want to preview a template with sample variables and language settings,
+So that I can verify rendering before publishing.
+Acceptance Criteria
+Given a template and sample variables + language, the preview shows rendered HTML with variables and i18n text replaced.
+Given a preview request, the system does not modify the template or cache.
+Given invalid variables, the preview shows un-replaced placeholders.
+Technical Implementation Notes
+Expose a POST /api/templates/{id}/preview endpoint that accepts variables and lang parameters.
+Reuse Template Fetcher’s rendering logic (variable + i18n replacement) to generate preview HTML.
+Return the preview HTML as a response for the UI to display.
+Story 7: Access Control for Template Management
+As a Template Manager,
+I want to restrict template creation/editing/deletion to authorized users,
+So that templates are managed securely.
+Acceptance Criteria
+Given an unauthorized user, they cannot access the management UI or write API endpoints.
+Given an admin user, they can perform all template operations.
+Given a read-only user, they can view templates but cannot edit/delete.
+Technical Implementation Notes
+Use Spring Security for role-based access control:
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.authorizeRequests()
+            .antMatchers("/api/templates/**").hasRole("ADMIN")
+            .antMatchers("/api/templates/match").permitAll()
+            .and().formLogin();
+    }
+}
+Would you like me to also generate a test plan for these user stories, covering both unit tests (for Java services) and integration tests (for API endpoints)? This would help validate the implementation end-to-end.
